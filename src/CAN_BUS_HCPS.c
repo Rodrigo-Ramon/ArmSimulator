@@ -1,178 +1,149 @@
-/***********************************************************************
-* Name        : CAN_BUS_HCPS.c
-* Date        : 01.09.2023
-* Author      : Kaida Wu(Dan)  Peihao Xiang(Noah)
-* Version     : 1.2
-* Copyright   : HCPS Lab ag 2015-2023
-* Description : CAN BUS comunication initialization and close 
-                Send or receive 8 bytes in the encoder
-***********************************************************************/
 #include "CAN_BUS_HCPS.h"
 
-int CAN_BUS_Init(void)
+
+int ret_send, ret_recv;
+int s_send, nbytes_send, s_recv, nbytes_recv;
+struct sockaddr_can addr_send, addr_recv;
+struct ifreq ifr_send, ifr_recv;
+struct can_frame frame_send, frame_recv;
+
+int CAN_BUS_Init()
 {
-    struct ifreq ifr_send;
-    struct ifreq ifr_receive;
-    struct sockaddr_can addr_send;
-    struct sockaddr_can addr_receive;
-    
 
-    memset(&frame_send, 0, sizeof(struct can_frame));                          // Open up the memory space for CAN
-    memset(&frame_receive, 0, sizeof(struct can_frame));
+    memset(&frame_send, 0, sizeof(struct can_frame));
+    memset(&frame_recv, 0, sizeof(struct can_frame));
 
-    if(system("sudo ip link set can0 type can bitrate 1000000") == -1)         // Open and set CAN interface
-    {
-        perror("sudo set failed");
-        return -1;
-    }
 
-    if(system("sudo ifconfig can0 up") == -1)
-    {
-        perror("sudo ifconfig failed");
-        return -1;
-    }
-
-    CAN_Send_file_descriptor = socket(PF_CAN, SOCK_RAW, CAN_RAW);              // Create socket
-    CAN_Receive_file_descriptor = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-
-    if(CAN_Send_file_descriptor == -1) 
-    {
+    system("sudo ip link set can0 type can bitrate 1000000"); //1Mbps
+    system("sudo ifconfig can0 up");
+    printf("----CAN communication - HCPS lab----\r\n");
+        
+    //1.Create socket
+    s_send = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    s_recv = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+    if (s_send < 0) {
         perror("socket PF_CAN failed in send");
-        return -1;
+        return 1;
     }
 
-    if(CAN_Receive_file_descriptor == -1) 
-    {
-        perror("socket PF_CAN failed in receive");
-        return -1;
+     if (s_recv < 0) {
+        perror("socket PF_CAN failed in recv");
+        return 1;
     }
     
-    strcpy(ifr_send.ifr_name, "can0");                                         // Device rename
-    strcpy(ifr_receive.ifr_name, "can0");
+    //2.Specify can0 device
+    strcpy(ifr_send.ifr_name, "can0");
+    strcpy(ifr_recv.ifr_name, "can0");
+    ret_send = ioctl(s_send, SIOCGIFINDEX, &ifr_send);
+    ret_recv = ioctl(s_recv, SIOCGIFINDEX, &ifr_recv);
 
-    if(ioctl(CAN_Send_file_descriptor, SIOCGIFINDEX, &ifr_send) == -1)         // Control device
-    {
+    if (ret_send < 0) {
         perror("ioctl failed in send");
-        return -1;
+        return 1;
     }
 
-    if(ioctl(CAN_Receive_file_descriptor, SIOCGIFINDEX, &ifr_receive) == -1)
-    {
+    if (ret_recv< 0) {
         perror("ioctl failed in recv");
-        return -1;
+        return 1;
     }
     
-    /* Set the socket attributes */
+    //3.Bind the socket to can0
     addr_send.can_family = AF_CAN;
     addr_send.can_ifindex = ifr_send.ifr_ifindex;
 
-    addr_receive.can_family = PF_CAN;
-    addr_receive.can_ifindex = ifr_receive.ifr_ifindex;
+    addr_recv.can_family = PF_CAN;
+    addr_recv.can_ifindex = ifr_recv.ifr_ifindex;
 
-    if(bind(CAN_Send_file_descriptor, (struct sockaddr *)&addr_send, sizeof(addr_send)) != 0)             // Bind the socket to can:
-    {
+    ret_send = bind(s_send, (struct sockaddr *)&addr_send, sizeof(addr_send));
+    ret_recv = bind(s_recv, (struct sockaddr *)&addr_recv, sizeof(addr_recv));
+
+    if (ret_send < 0) {
         perror("bind failed in send");
-        return -1;
+        return 1;
     }
 
-    if(bind(CAN_Receive_file_descriptor, (struct sockaddr *)&addr_receive, sizeof(addr_receive)) != 0)
-    {
-        perror("bind failed in receive");
-        return -1;
+    if (ret_recv < 0) {
+        perror("bind failed in recv");
+        return 1;
     }
-
-    fcntl(CAN_Receive_file_descriptor, F_SETFL, FNDELAY);                                                 // Set receive filer rule
-
-    if(setsockopt(CAN_Send_file_descriptor, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0) != 0)
-    {
-        perror("Set rule failed in send");
-        return -1;
-    }
-
-    struct can_filter rfilter_receive[2];
-
-    rfilter_receive[0].can_id = CAN_Receive_address0;
-    rfilter_receive[0].can_mask = CAN_SFF_MASK;
-
-    rfilter_receive[1].can_id = CAN_Receive_address1;
-    rfilter_receive[1].can_mask = CAN_SFF_MASK;
-
-    if(setsockopt(CAN_Receive_file_descriptor, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter_receive, sizeof(rfilter_receive)) != 0)
-    {
-        perror("Set rule failed in receive");
-        return -1;
-    }
-
-    return 1;
-}
-
-int CAN_BUS_Send(char *command_buffer, bool motorNum)
-{
-    int send_character_length;
     
-    frame_send.can_id = motorNum ? CAN_Send_address0, CAN_Send_address1 ;            // Set the identifier and DLC
-    frame_send.can_dlc = 8;
+    fcntl(s_recv,F_SETFL,FNDELAY);//set to non-blocking mode for receive 
 
-    for(int i=0; i<8; i++)  
-    {
-        frame_send.data[i] = command_buffer[i];      // Fill in the data frame
-    }
+    //4.Disable filtering rules, do not receive packets, only send
+    setsockopt(s_send, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
+    
+    struct can_filter rfilter_recv[2];  // Set the group number of your recevied address
+    
+    rfilter_recv[0].can_id = Receive_CAN_BUS_addr1;
+    rfilter_recv[0].can_mask = CAN_SFF_MASK;
 
-    send_character_length = write(CAN_Send_file_descriptor, &frame_send, sizeof(frame_send));
+    rfilter_recv[1].can_id = Receive_CAN_BUS_addr2;
+    rfilter_recv[1].can_mask = CAN_SFF_MASK;
 
-    if(send_character_length != sizeof(frame_send)) 
-    {
-        printf("CAN send failed\n");
-        return -1;
-    }
-
-    return 1;
+    setsockopt(s_recv, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter_recv, sizeof(rfilter_recv));
+    return 0;
 }
+
+void CAN_BUS_Send(char *command_buf,int Send_CAN_BUS_addr)
+{
+
+    frame_send.can_id = Send_CAN_BUS_addr;
+    frame_send.can_dlc = 8;
+    for(int i=0;i<8;i++)  
+        {
+        frame_send.data[i] = command_buf[i];
+        }
+        //memset(cmd_buf, 0, sizeof(cmd_buf));
+
+    //printf("can_id  = 0x%x\r\n", frame_send.can_id);
+   // printf("can_dlc = %d\r\n",frame_send.can_dlc);
+    //int i = 0;
+    //for(i = 0; i < 8; i++)
+        //printf("data[%d] = %x\r\n", i, frame_send.data[i]);
+
+    //6.Send message
+    nbytes_send = write(s_send, &frame_send, sizeof(frame_send)); 
+    if(nbytes_send != sizeof(frame_send)) {
+        printf("Send Error frame[0]!\r\n");
+        //system("sudo ifconfig can0 down");
+    }
+}
+
 
 char* CAN_BUS_Receive()
 {
-    int receive_character_length;
-    static char receive_buffer[8] = {0};
-
-    receive_character_length = read(CAN_Receive_file_descriptor, &frame_receive, sizeof(frame_receive));
-
-    if(receive_character_length > 0) 
-    {
-        for(int i = 0; i < 8; i++)
-        {
-            receive_buffer[i] =  frame_receive.data[i];           // Read frame data
+    static char receive_buf[9] = {0};
+    //static char empty_array[8] = {0};
+     nbytes_recv = read(s_recv, &frame_recv, sizeof(frame_recv));
+        if(nbytes_recv > 0) {
+            //printf("can_id = %d,%X\r\ncan_dlc = %d \r\n", frame_recv.can_id, frame_recv.can_id, frame_recv.can_dlc);
+            receive_buf[0] = frame_recv.can_id == 0x242 ? 1:2 ;
+            
+            for(int i = 1; i < 10; i++)
+            {
+                receive_buf[i] =  frame_recv.data[i-1];
+            }
+                //printf("data[%d] = %x\r\n", i, frame_recv.data[i]);
+            nbytes_recv =0;
+            //break;
+        //memset(&frame_send, 0, sizeof(struct can_frame));
+        memset(&frame_recv, 0, sizeof(struct can_frame));
+        return receive_buf;
         }
-        
-        receive_character_length = 0;
-        memset(&frame_receive, 0, sizeof(struct can_frame));      // Clear cache
-
-        return receive_buffer;
-    }
-    else
-    {
-        return NULL;
-    }        
+        else
+        {
+            return NULL;
+        }        
 }
 
-int CAN_BUS_Close(void)
+void CAN_BUS_Close()
 {
-    if(close(CAN_Send_file_descriptor) != 0)
-    {
-        perror("CAN BUS send close failed");
-        return -1;
-    }
+    close(s_send);
+    close(s_recv);
+    system("sudo ifconfig can0 down");
+    printf("Quit!\r\n");
 
-    if(close(CAN_Receive_file_descriptor) != 0)
-    {
-        perror("CAN BUS receive close failed");
-        return -1;
-    }
-
-    if(system("sudo ifconfig can0 down") == -1)
-    {
-        perror("CAN interface close failed");
-        return -1;
-    }
-
-    return 1;
 }
+
+
+

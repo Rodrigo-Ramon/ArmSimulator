@@ -1,27 +1,73 @@
+/**********************************************************************************
+ *Lab: HCPS in FIU
+ *Filename: CAN_BUS_HCPS.h CAN_BUS_HCPS.c
+ *Author : Kaida(Dan) Wu
+ *Version: v1.1
+ *Update Date: 03-10-2023
+ *Function: Embedeed Liunx CAN BUS comunication, include "send" and "recevice"
+ * log: Update multiple motors CAN BUS comunication
+ * Example: 
+ *  
+ * step 1: Set the address of Receive_CAN_BUS_addr1 in macro definition of this file
+ * step 2: According to following demo for your code.
+ int main()
+    {
+        char send_buf[8]={'1','2','3','4','5','6','7','8'};
+        char rec_buf[10]={0}; // (rec_buf[0]<<8 + rec_buf[1]) is the received address
+                              // The data is from rec_buf[3] to rec_buf[9] 
+        char *recevied_buf = NULL;
+
+        CAN_BUS_Init();
+        usleep(1000);
+        CAN_BUS_Send(send_buf,0x141); // set send address (motor address)
+        usleep(1000);
+    
+        while(1)
+        {
+                    
+            recevied_buf = CAN_BUS_Receive();
+            if(recevied_buf != NULL)
+            {  
+                for(int i=0;i<10;i++)  
+               {
+                rec_buf[i] = recevied_buf[i];
+               }
+
+               if(((rec_buf[0]<<8 + rec_buf[1])) == 0x241)
+                {
+                    for(int i=3;i<10;i++) 
+                    printf("%X\t",rec_buf[i]);
+                }
+            }
+        }
+
+        CAN_BUS_Close();
+        return 0;
+    }                    
+ ********************************************************************************
+*/
+
 #include <stdio.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <net/if.h>
-#include <linux/can.h>
 #include <sys/ioctl.h>
-#include <sys/types.h>
 #include <sys/socket.h>
+#include <linux/can.h>
 #include <linux/can/raw.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include "keyboard_event.h"
 
-#define CAN_Send_address0 0x141           // The address of the device you want to send
-#define CAN_Receive_address0 0x241        // The address of this device
+//#define Send_CAN_BUS_addr 0x141   // The address of the device you want to send
+#define Receive_CAN_BUS_addr1 0x241 // The address of this device group1
+#define Receive_CAN_BUS_addr2 0x242 // The address of this device group1
 
-#define CAN_Send_address1 0x142           // The address of the device you want to send
-#define CAN_Receive_address1 0x242        // The address of this device
+//char cmd_buf[8]={0};
+//char tx_flag = 0;
 
-int CAN_Send_file_descriptor;
-int CAN_Receive_file_descriptor;
-struct can_frame frame_send;
-struct can_frame frame_receive;
-
-int CAN_BUS_Init(void);
-int CAN_BUS_Send(char *command_buffer);     // Input the 8 bytes data (such as an array of 8)
-char *CAN_BUS_Receive();                    // Declare an point to get the 8 bytes data.
-int CAN_BUS_Close(void);
+int CAN_BUS_Init();
+void CAN_BUS_Send(char *command_buf,int Send_CAN_BUS_addr); //input the 8 bytes data (such as an array of 8)
+char *CAN_BUS_Receive(); // declare an point to get the 8 bytes data.
+void CAN_BUS_Close();
