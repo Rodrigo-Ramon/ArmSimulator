@@ -25,10 +25,10 @@ bool Kinematics::inverse_kinematics(float x, float y, float joint1_angle_prev, f
     //printf("NoGo");
     return false;
   }
-  float s2 = sqrt(1 - pow(c2, 2));
-  float theta2 = atan2(s2, c2);
-  float k1 = link1_length_ + link2_length_ * c2;
-  float k2 = link2_length_ * s2;
+  
+  float theta2 = acos( c2 );
+  float k1 = link1_length_ + link2_length_ * cos ( theta2 );
+  float k2 = link2_length_ * sin(theta2);
   float theta1 = atan2(y, x) - atan2(k2, k1);
 
   // Check joint limits
